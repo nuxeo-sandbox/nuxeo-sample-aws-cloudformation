@@ -73,6 +73,7 @@ echo nuxeo nuxeo/http-port select 8080 | debconf-set-selections
 echo nuxeo nuxeo/database select Autoconfigure PostgreSQL | debconf-set-selections
 
 # Install Nuxeo
+apt-get update
 apt-get -q -y install nuxeo
 service nuxeo stop
 
