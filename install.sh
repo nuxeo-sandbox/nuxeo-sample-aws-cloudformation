@@ -11,17 +11,23 @@ ES_VERSION="6.5.4"
 echo '*       soft    nofile      4096' >> /etc/security/limits.conf
 echo '*       hard    nofile      8192' >> /etc/security/limits.conf
 
-# Add the nuxeo repository to the repository list
-code=$(lsb_release -cs)
-echo "deb http://apt.nuxeo.org/ $code releases" > /etc/apt/sources.list.d/nuxeo.list
+#set up ubuntu user
+cat << EOF >> /home/ubuntu/.profile
+export TERM="xterm-color"
+export PS1='\[\e[0;33m\]\u\[\e[0m\]@\[\e[0;32m\]\h\[\e[0m\]:\[\e[0;34m\]\w\[\e[0m\]\$ '
+alias dir='ls -alFGh'
+alias hs='history'
+alias mytail='tail -F /var/log/nuxeo/server.log'
+alias vilog='vi /var/log/nuxeo/server.log'
+alias mydu='du -sh */'
+EOF
 
-# Register the nuxeo key
-wget -q -O- http://apt.nuxeo.org/nuxeo.key | apt-key add -
-
-# Pre-accept Sun Java license & set Nuxeo options
-echo nuxeo nuxeo/bind-address select 127.0.0.1 | debconf-set-selections
-echo nuxeo nuxeo/http-port select 8080 | debconf-set-selections
-echo nuxeo nuxeo/database select Autoconfigure PostgreSQL | debconf-set-selections
+#set up vim for ubuntu user
+cat << EOF > /home/ubuntu/.vimrc
+" Set the filetype based on the file's extension, but only if
+" 'filetype' has not already been set
+au BufRead,BufNewFile *.conf setfiletype conf
+EOF
 
 # Upgrade packages and install apache, ssh, ...
 export DEBIAN_FRONTEND=noninteractive
@@ -32,8 +38,10 @@ apt-get -q -y upgrade
 apt-get -q -y install apache2 apt-transport-https openssh-server openssh-client vim
 echo "Please wait a few minutes for you instance installation to complete" > /var/www/html/index.html
 
-# Install JA fonts
-apt-get -q -y install fonts-takao
+# Install latest aws cli using pip
+apt-get install -q -y python3-pip
+pip3 install awscli --upgrade --user
+export PATH=$PATH:~/.local/bin/
 
 # Install Java
 apt-get -q -y install openjdk-11-jdk
@@ -46,18 +54,30 @@ apt-get -q -y install elasticsearch=${ES_VERSION}
 /bin/systemctl daemon-reload
 /bin/systemctl enable elasticsearch.service
 
-# ES Plugins
-/usr/share/elasticsearch/bin/elasticsearch-plugin install analysis-kuromoji
-/usr/share/elasticsearch/bin/elasticsearch-plugin install analysis-icu
 # Set default ES heap to 1G
 sed -i 's/Xms2g/Xms1g/g' /etc/elasticsearch/jvm.options
 sed -i 's/Xmx2g/Xmx1g/g' /etc/elasticsearch/jvm.options
 
 service elasticsearch start
 
+# Add the nuxeo repository to the repository list
+code=$(lsb_release -cs)
+echo "deb http://apt.nuxeo.org/ $code releases" > /etc/apt/sources.list.d/nuxeo.list
+
+# Register the nuxeo key
+wget -q -O- http://apt.nuxeo.org/nuxeo.key | apt-key add -
+
+# Pre-accept Sun Java license & set Nuxeo options
+echo nuxeo nuxeo/bind-address select 127.0.0.1 | debconf-set-selections
+echo nuxeo nuxeo/http-port select 8080 | debconf-set-selections
+echo nuxeo nuxeo/database select Autoconfigure PostgreSQL | debconf-set-selections
+
 # Install Nuxeo
 apt-get -q -y install nuxeo
 service nuxeo stop
+
+#decrease nuxeo startup priority
+mv /etc/rc3.d/S*nuxeo /etc/rc3.d/S99nuxeo
 
 #skip wizard
 sed -i '/nuxeo.wizard.done=false/d' /etc/nuxeo/nuxeo.conf
@@ -81,6 +101,37 @@ sed -i '1inuxeo.s3storage.useDirectUpload=true' /etc/nuxeo/nuxeo.conf
 sed -i '1inuxeo.s3storage.transient.roleArn='${UPLOAD_ROLE_ARN} /etc/nuxeo/nuxeo.conf
 sed -i '1inuxeo.s3storage.transient.bucket='${STACK_ID}-bucket /etc/nuxeo/nuxeo.conf
 sed -i '1inuxeo.s3storage.transient.bucket_prefix=upload/' /etc/nuxeo/nuxeo.conf
+
+#register the nuxeo instance
+CREDENTIALS=$(aws secretsmanager get-secret-value --secret-id NuxeoConnectToken --region ${REGION} | jq -r '.SecretString|fromjson|.Token')
+nuxeoctl register nuxeo_presales ${NX_STUDIO} "dev" "AWS_${STACK_ID}" "${CREDENTIALS}"
+nuxeoctl mp-hotfix --accept true
+nuxeoctl mp-install nuxeo-web-ui marketplace-disable-studio-snapshot-validation amazon-s3-online-storage amazon-s3-direct-upload ${NX_STUDIO}-0.0.0-SNAPSHOT --accept true
+
+#set up profile for nuxeo user
+cat << EOF > /var/lib/nuxeo/server/.profile
+export NUXEO_CONF=/etc/nuxeo/nuxeo.conf
+cd /var/lib/nuxeo/server/bin
+echo  "Hi, nuxeo user. NUXEO_CONF is defined, and you are in /bin, ready to ./nuxeoctl"
+alias ll='ls -al'
+alias la='ls -a'
+alias ..='cd ..'
+export TERM="xterm-color"
+export PS1='\[\e[0;33m\]\u\[\e[0m\]@\[\e[0;32m\]\h\[\e[0m\]:\[\e[0;34m\]\w\[\e[0m\]\$ '
+alias dir='ls -alFGh'
+alias hs='history'
+alias mytail='tail -F /var/log/nuxeo/server.log'
+alias vilog='vi /var/log/nuxeo/server.log'
+EOF
+chown nuxeo:nuxeo /var/lib/nuxeo/server/.profile
+
+#set up vim for nuxeo user
+cat << EOF > /var/lib/nuxeo/server/.vimrc
+" Set the filetype based on the file's extension, but only if
+" 'filetype' has not already been set
+au BufRead,BufNewFile *.conf setfiletype conf
+EOF
+chown nuxeo:nuxeo /var/lib/nuxeo/server/.vimrc
 
 # Configure reverse-proxy
 cat << EOF > /etc/apache2/sites-available/nuxeo.conf
@@ -135,57 +186,3 @@ a2enmod proxy proxy_http rewrite ssl headers
 a2dissite 000-default
 a2ensite nuxeo
 apache2ctl -k graceful
-
-#set up profile for nuxeo user
-cat << EOF > /var/lib/nuxeo/server/.profile
-export NUXEO_CONF=/etc/nuxeo/nuxeo.conf
-cd /var/lib/nuxeo/server/bin
-echo  "Hi, nuxeo user. NUXEO_CONF is defined, and you are in /bin, ready to ./nuxeoctl"
-alias ll='ls -al'
-alias la='ls -a'
-alias ..='cd ..'
-export TERM="xterm-color"
-export PS1='\[\e[0;33m\]\u\[\e[0m\]@\[\e[0;32m\]\h\[\e[0m\]:\[\e[0;34m\]\w\[\e[0m\]\$ '
-alias dir='ls -alFGh'
-alias hs='history'
-alias mytail='tail -F /var/log/nuxeo/server.log'
-alias vilog='vi /var/log/nuxeo/server.log'
-figlet -t $DNS_NAME.cloud.nuxeo.com
-EOF
-chown nuxeo:nuxeo /var/lib/nuxeo/server/.profile
-
-#set up vim for nuxeo user
-cat << EOF > /var/lib/nuxeo/server/.vimrc
-" Set the filetype based on the file's extension, but only if
-" 'filetype' has not already been set
-au BufRead,BufNewFile *.conf setfiletype conf
-EOF
-chown nuxeo:nuxeo /var/lib/nuxeo/server/.vimrc
-
-#set up ubuntu user
-cat << EOF >> /home/ubuntu/.profile
-export TERM="xterm-color"
-export PS1='\[\e[0;33m\]\u\[\e[0m\]@\[\e[0;32m\]\h\[\e[0m\]:\[\e[0;34m\]\w\[\e[0m\]\$ '
-alias dir='ls -alFGh'
-alias hs='history'
-alias mytail='tail -F /var/log/nuxeo/server.log'
-alias vilog='vi /var/log/nuxeo/server.log'
-alias mydu='du -sh */'
-figlet $DNS_NAME.cloud.nuxeo.com
-EOF
-
-#set up vim for ubuntu user
-cat << EOF > /home/ubuntu/.vimrc
-" Set the filetype based on the file's extension, but only if
-" 'filetype' has not already been set
-au BufRead,BufNewFile *.conf setfiletype conf
-EOF
-
-
-#register the nuxeo instance
-nuxeoctl register nuxeo_presales ${NX_STUDIO} "dev" "AWS_${STACK_ID}" "${NX_TOKEN}"
-nuxeoctl mp-hotfix --accept true
-nuxeoctl mp-install nuxeo-web-ui marketplace-disable-studio-snapshot-validation amazon-s3-online-storage amazon-s3-direct-upload ${NX_STUDIO}-0.0.0-SNAPSHOT --accept true
-
-#decrease nuxeo startup priority
-mv /etc/rc3.d/S*nuxeo /etc/rc3.d/S99nuxeo

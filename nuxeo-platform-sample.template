@@ -154,7 +154,7 @@
         "UserData": {
           "Fn::Base64": {
             "Fn::Sub": [
-              "#!/bin/bash\n\nwget https://raw.githubusercontent.com/nuxeo-sandbox/nuxeo-sample-aws-cloudformation/master/install.sh\necho export UPLOAD_ROLE_ARN=${uploadRole} STACK_ID=${stack} REGION=${region} NX_STUDIO=${studio} NX_TOKEN=${token} >> /etc/profile.d/load_env.sh\nbash install.sh\n",
+              "#!/bin/bash\n\nwget https://raw.githubusercontent.com/nuxeo-sandbox/nuxeo-sample-aws-cloudformation/master/install.sh\necho export UPLOAD_ROLE_ARN=${uploadRole} STACK_ID=${stack} REGION=${region} NX_STUDIO=${studio} >> /etc/profile.d/load_env.sh\nbash install.sh\n",
               {
                 "stack": {
                   "Ref": "AWS::StackName"
@@ -165,7 +165,6 @@
                 "studio": {
                   "Ref": "StudioProject"
                 },
-                "token": "{{resolve:secretsmanager:NuxeoConnectToken:SecretString:Token}}",
                 "uploadRole": {
                   "Fn::GetAtt": [
                     "UploadRole",
