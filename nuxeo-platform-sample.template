@@ -1,0 +1,391 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+
+  "Description": "Nuxeo Platform Template",
+
+  "Parameters": {
+    "KeyName": {
+      "Description": "Name of an existing EC2 KeyPair to enable SSH access",
+      "Type": "String",
+      "MinLength": 1,
+      "ConstraintDescription": "Please specify a key pair"
+    },
+    "InstanceType": {
+      "Description": "Type of EC2 instance",
+      "Type": "String",
+      "Default": "t3.medium",
+      "AllowedValues": [
+        "t3.medium", "t3.large", "t3.xlarge", "t3.2xlarge",
+        "m5.large", "m5.xlarge", "m5.2xlarge", "m5.4xlarge",
+        "c5.large", "c5.xlarge", "c5.2xlarge", "c5.4xlarge", "c5.8xlarge"
+      ]
+    },
+    "DiskSize": {
+      "Type": "Number",
+      "Default": 10,
+      "Description": "Disk size (in GB) for root volume of EC2 instance"
+    },
+    "StudioProject": {
+      "Type": "String",
+      "Description": "The Nuxeo Studio project name"
+    }
+  },
+
+  "Mappings": {
+    "AWSRegionArch2AMI": {
+      "us-west-1": {
+        "64": "ami-063aa838bd7631e0b"
+      },
+      "us-west-2": {
+        "64": "ami-0bbe6b35405ecebdb"
+      },
+      "us-east-1": {
+        "64": "ami-0ac019f4fcb7cb7e6"
+      },
+      "eu-west-1": {
+        "64": "ami-00035f41c82244dab"
+      },
+      "eu-central-1": {
+        "64": "ami-0bdf93799014acdc4"
+      },
+      "ap-northeast-1": {
+        "64": "ami-07ad4b1c3af1ea214"
+      },
+      "ap-southeast-1": {
+        "64": "ami-0c5199d385b432989"
+      },
+      "ap-southeast-2": {
+        "64": "ami-07a3bd4944eb120a0"
+      },
+      "sa-east-1": {
+        "64": "ami-03c6239555bb12112"
+      }
+    }
+  },
+  "Resources": {
+    "VPC": {
+      "Type" : "AWS::EC2::VPC",
+      "Properties" : {
+        "CidrBlock" : "10.0.0.0/16",
+        "EnableDnsSupport" : "true",
+        "EnableDnsHostnames" : "true"
+      }
+    },
+    "InternetGateway" : {
+      "Type" : "AWS::EC2::InternetGateway"
+    },
+    "AttachGateway" : {
+      "Type" : "AWS::EC2::VPCGatewayAttachment",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC" },
+        "InternetGatewayId" : { "Ref" : "InternetGateway" }
+      }
+    },
+    "RouteTable" : {
+      "Type" : "AWS::EC2::RouteTable",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC" }
+      }
+    },
+    "Route" : {
+      "Type" : "AWS::EC2::Route",
+      "Properties" : {
+        "RouteTableId" : { "Ref" : "RouteTable" },
+        "DestinationCidrBlock" : "0.0.0.0/0",
+        "GatewayId" : { "Ref" : "InternetGateway" }
+      }
+    },
+    "Subnet": {
+      "Type" : "AWS::EC2::Subnet",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC" },
+        "CidrBlock" : "10.0.0.0/24",
+        "MapPublicIpOnLaunch": true
+      }
+    },
+    "SubnetRouteTableAssociation" : {
+      "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties" : {
+        "SubnetId" : { "Ref" : "Subnet" },
+        "RouteTableId" : { "Ref" : "RouteTable" }
+      }
+    },
+    "NuxeoInstance": {
+      "Type": "AWS::EC2::Instance",
+      "Properties": {
+        "InstanceType": {
+          "Ref": "InstanceType"
+        },
+        "SecurityGroupIds": [{
+          "Fn::GetAtt": ["NuxeoSecurity", "GroupId"]
+        }],
+        "KeyName": {
+          "Ref": "KeyName"
+        },
+        "BlockDeviceMappings": [{
+          "DeviceName": "/dev/sda1",
+          "Ebs": {
+            "VolumeSize": {
+              "Ref": "DiskSize"
+            }
+          }
+        }],
+        "ImageId": {
+          "Fn::FindInMap": ["AWSRegionArch2AMI", {
+              "Ref": "AWS::Region"
+            },
+            "64"
+          ]
+        },
+        "SubnetId": {
+          "Ref": "Subnet"
+        },
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          }
+        ],
+        "IamInstanceProfile": {
+          "Ref": "InstanceProfile"
+        },
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Sub": [
+              "#!/bin/bash\n\nwget https://raw.githubusercontent.com/nuxeo-sandbox/nuxeo-sample-aws-cloudformation/master/install.sh\necho export UPLOAD_ROLE_ARN=${uploadRole} STACK_ID=${stack} REGION=${region} NX_STUDIO=${studio} NX_TOKEN=${token} >> /etc/profile.d/load_env.sh\nbash install.sh\n",
+              {
+                "stack": {
+                  "Ref": "AWS::StackName"
+                },
+                "region": {
+                  "Ref": "AWS::Region"
+                },
+                "studio": {
+                  "Ref": "StudioProject"
+                },
+                "token": "{{resolve:secretsmanager:NuxeoConnectToken:SecretString:Token}}",
+                "uploadRole": {
+                  "Fn::GetAtt": [
+                    "UploadRole",
+                    "Arn"
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "InstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [{
+          "Ref": "InstanceRole"
+        }]
+      }
+    },
+    "InstanceRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": {
+              "Service": ["ec2.amazonaws.com"]
+            },
+            "Action": [
+              "sts:AssumeRole"
+            ]
+          }]
+        },
+        "Path": "/"
+      }
+    },
+    "InstanceSharedResourcePolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": {
+          "Fn::Sub": ["${name}-shared-resource-instance-policy", {
+            "name": {
+              "Ref": "AWS::StackName"
+            }
+          }]
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+              "Effect": "Allow",
+              "Action": "s3:ListAllMyBuckets",
+              "Resource": ["arn:aws:s3:::*"]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "textract:DetectDocumentText",
+                "comprehend:*",
+                "rekognition:DetectLabels",
+                "rekognition:DetectText",
+                "rekognition:RecognizeCelebrities",
+                "rekognition:GetCelebrityInfo"
+              ],
+              "Resource": "*"
+            }
+          ]
+        },
+        "Roles": [{
+          "Ref": "InstanceRole"
+        }]
+      }
+    },
+
+    "InstancesS3Policy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": {
+          "Fn::Sub": ["${name}-s3-instance-policy", {
+            "name": {
+              "Ref": "AWS::StackName"
+            }
+          }]
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+              "Effect": "Allow",
+              "Action": [
+                "s3:ListBucket",
+                "s3:GetBucketLocation",
+                "s3:AbortMultipartUpload",
+                "s3:ListMultipartUploadParts",
+                "s3:ListBucketMultipartUploads"
+              ],
+              "Resource": [{
+                "Fn::Join": ["", ["arn:aws:s3:::", {
+                  "Ref": "S3Bucket"
+                }]]
+              }]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:DeleteObject",
+                "s3:AbortMultipartUpload",
+                "s3:ListMultipartUploadParts",
+                "s3:ListBucketMultipartUploads"
+              ],
+              "Resource": [{
+                "Fn::Join": ["", ["arn:aws:s3:::", {
+                  "Ref": "S3Bucket"
+                }, "/*"]]
+              }]
+            }
+          ]
+        },
+        "Roles": [{
+          "Ref": "InstanceRole"
+        }]
+      }
+    },
+    "UploadRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": {
+              "AWS": [{
+                "Fn::GetAtt": ["InstanceRole", "Arn"]
+              }]
+            },
+            "Action": [
+              "sts:AssumeRole"
+            ]
+          }]
+        },
+        "Path": "/"
+      }
+    },
+    "UploadPolicy": {
+      "Type": "AWS::IAM::Policy",
+      "Properties": {
+        "PolicyName": {
+          "Fn::Sub": ["${name}-direct-upload-policy", {
+            "name": {
+              "Ref": "AWS::StackName"
+            }
+          }]
+        },
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Action": "s3:PutObject",
+            "Resource": [{
+              "Fn::Join": ["", ["arn:aws:s3:::", {
+                "Ref": "S3Bucket"
+              }, "/upload/*"]]
+            }]
+          }]
+        },
+        "Roles": [{
+          "Ref": "UploadRole"
+        }]
+      }
+    },
+    "NuxeoSecurity": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "GroupDescription": "Allow ports 22 (SSH), 80 (HTTP) and 443 (HTTPS)",
+        "SecurityGroupIngress": [{
+            "IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "80",
+            "ToPort": "80",
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "443",
+            "ToPort": "443",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ]
+      }
+    },
+    "S3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": {
+          "Fn::Sub": ["${name}-bucket", {
+            "name": {
+              "Ref": "AWS::StackName"
+            }
+          }]
+        },
+        "CorsConfiguration": {
+          "CorsRules": [{
+            "AllowedHeaders": ["*"],
+            "AllowedMethods": ["GET", "HEAD", "PUT", "POST"],
+            "AllowedOrigins": ["*"],
+            "ExposedHeaders": ["ETag", "Content-Disposition"]
+          }]
+        }
+      }
+    }
+  }
+}
