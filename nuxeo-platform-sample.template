@@ -385,7 +385,7 @@
           "CorsRules": [{
             "AllowedHeaders": ["*"],
             "AllowedMethods": ["GET", "HEAD", "PUT", "POST"],
-            "AllowedOrigins": ["*"],
+            "AllowedOrigins": ["http://*.compute.amazonaws.com"],
             "ExposedHeaders": ["ETag", "Content-Disposition"]
           }]
         }
