@@ -107,8 +107,9 @@ sed -i '1inuxeo.s3storage.transient.bucket='${STACK_ID}-bucket /etc/nuxeo/nuxeo.
 sed -i '1inuxeo.s3storage.transient.bucket_prefix=upload/' /etc/nuxeo/nuxeo.conf
 
 #register the nuxeo instance
-CREDENTIALS=$(aws secretsmanager get-secret-value --secret-id NuxeoConnectToken --region ${REGION} | jq -r '.SecretString|fromjson|.Token')
-nuxeoctl register nuxeo_presales ${NX_STUDIO} "dev" "AWS_${STACK_ID}" "${CREDENTIALS}"
+USERNAME=$(aws secretsmanager get-secret-value --secret-id NuxeoConnectToken --region ${REGION} | jq -r '.SecretString|fromjson|.Username')
+TOKEN=$(aws secretsmanager get-secret-value --secret-id NuxeoConnectToken --region ${REGION} | jq -r '.SecretString|fromjson|.Token')
+nuxeoctl register ${USERNAME} ${NX_STUDIO} "dev" "AWS_${STACK_ID}" "${TOKEN}"
 nuxeoctl mp-hotfix --accept true
 nuxeoctl mp-install nuxeo-web-ui marketplace-disable-studio-snapshot-validation amazon-s3-online-storage amazon-s3-direct-upload ${NX_STUDIO}-0.0.0-SNAPSHOT --accept true
 
