@@ -232,6 +232,11 @@
                 "rekognition:GetCelebrityInfo"
               ],
               "Resource": "*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": "secretsmanager:GetSecretValue",
+              "Resource": ["arn:aws:secretsmanager:*:*:secret:NuxeoConnectToken*"]
             }
           ]
         },
