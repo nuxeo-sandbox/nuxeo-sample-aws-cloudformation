@@ -112,6 +112,7 @@ TOKEN=$(aws secretsmanager get-secret-value --secret-id NuxeoConnectToken --regi
 nuxeoctl register ${USERNAME} ${NX_STUDIO} "dev" "AWS_${STACK_ID}" "${TOKEN}"
 nuxeoctl mp-hotfix --accept true
 nuxeoctl mp-install nuxeo-web-ui marketplace-disable-studio-snapshot-validation amazon-s3-online-storage amazon-s3-direct-upload ${NX_STUDIO}-0.0.0-SNAPSHOT --accept true
+nuxeoctl start
 
 #set up profile for nuxeo user
 cat << EOF > /var/lib/nuxeo/server/.profile
