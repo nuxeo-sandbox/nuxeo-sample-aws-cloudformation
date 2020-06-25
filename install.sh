@@ -77,6 +77,9 @@ apt-get update
 apt-get -q -y install nuxeo
 service nuxeo stop
 
+#fix imagemagick Policy
+wget https://raw.githubusercontent.com/nuxeo-sandbox/nuxeo-sample-aws-cloudformation/master/ImageMagick/policy.xml -O /etc/ImageMagick-6/policy.xml
+
 #decrease nuxeo startup priority
 mv /etc/rc3.d/S*nuxeo /etc/rc3.d/S99nuxeo
 
