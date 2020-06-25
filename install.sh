@@ -35,7 +35,7 @@ locale-gen en_US.UTF-8
 update-locale LANG=en_US.UTF-8
 apt-get update
 apt-get -q -y upgrade
-apt-get -q -y install apache2 apt-transport-https openssh-server openssh-client vim
+apt-get -q -y install apache2 apt-transport-https openssh-server openssh-client vim jq
 echo "Please wait a few minutes for you instance installation to complete" > /var/www/html/index.html
 
 # Install latest aws cli using pip
